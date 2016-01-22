@@ -36,6 +36,10 @@
  *      Last modified January 2016
  *      Author John Romano D'Orazio http://www.johnromanodorazio.com
  *      Email priest@johnromanodorazio.com
+ *      
+ *      TODO: consider using PROGRAMSTATE definitions instead of booleans as PROGRAM STATE FLAGS...
+ *            then usage would be like "IF(PROGRAMSTATE == SCANNINGDEVICES){}"
+ *            and we could use a SWITCH CASE instead of IF...ELSE IF
  */
 
 #include "Timer.h"                     //http://github.com/JChristensen/Timer
