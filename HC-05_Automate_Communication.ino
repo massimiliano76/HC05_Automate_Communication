@@ -31,7 +31,13 @@
  *        ii-> ELSE CYCLE TO NEXT DEVICE AND PROMPT USER AGAIN
  *       iii-> IF CYCLE ENDS WITHOUT A SINGLE USER CONFIRMATION, SCAN DEVICES AGAIN (goto b->)
  *      
- *      
+ * This sketch was written for use with an Atmega 1284P on a breadboard, using the "maniacbug Mighty 1284P 16MHZ using optiboot" bootloader
+ * The Atmega 1284P has more then one hardware UART, allowing us to use both Serial and Serial1, thus avoiding SoftwareSerial
+ * (in my personal experience, perhaps depending also on the baud rate, SoftwareSerial can result in corrupted or spurious serial data, so I prefer hardware serial)
+ * 
+ * For wire connections between the HC-05 bluetooth module and the 1284P, see https://github.com/mugroma3/HC05_Manual_AT_Mode/blob/master/HC-05_Manual_AT_Mode.ino
+ * 
+ * For this script, the Arduino Serial Monitor must be set to 38400 baud and send only "LF" (or "NL" newline \n)
  *      
  *      Last modified January 2016
  *      Author John Romano D'Orazio http://www.johnromanodorazio.com
