@@ -57,6 +57,7 @@
 
 #include "Timer.h"                     //http://github.com/JChristensen/Timer
 
+/* DEFINE OUR CONSTANTS */
 
 #define LED             0 // led digital pin
 
@@ -70,7 +71,7 @@
 //module ROLE definitions
 #define SLAVE         0
 #define MASTER        1
-#define SLAVE-LOOP    2
+#define SLAVE_LOOP    2
 
 //module STATE definitions
 #define DISCONNECTED  0
@@ -84,15 +85,53 @@
 #define CONNECT_ANY         1
 #define CONNECT_SLAVE_LOOP  2
 
+const String ERRORMESSAGE[29] = {
+  "Command Error/Invalid Command",
+  "Results in default value",
+  "PSKEY write error",
+  "Device name is too long (>32 characters)",
+  "No device name specified (0 length)",
+  "Bluetooth address NAP is too long",
+  "Bluetooth address UAP is too long",
+  "Bluetooth address LAP is too long",
+  "PIO map not specified (0 length)",
+  "Invalid PIO port Number entered",
+  "Device Class not specified (0 length)",
+  "Device Class too long",
+  "Inquire Access Code not Specified (0 length)",
+  "Inquire Access Code too long",
+  "Invalid Inquire Access Code entered",
+  "Pairing Password not specified (0 length)",
+  "Pairing Password too long (> 16 characters)",
+  "Invalid Role entered",
+  "Invalid Baud Rate entered",
+  "Invalid Stop Bit entered",
+  "Invalid Parity Bit entered",
+  "No device in the Pairing List",
+  "SPP not initialized",
+  "SPP already initialized",
+  "Invalid Inquiry Mode",
+  "Inquiry Timeout occured",
+  "Invalid/zero length address entered",
+  "Invalid Security Mode entered",
+  "Invalid Encryption Mode entered"
+};
+
+/* INITIALIZE OUR GLOBAL VARIABLES */
+
 //instantiate the timer object
 Timer t;
-
 int dynamicEvent;
 
-//unsigned long time;
+//these booleans represent program state
+//perhaps they could be made into constants, with a single variable representing program state...
+//I won't do this just yet, because as things stand combinations of these states are sometimes utilized...
+//(specifically the first three; all others seem to be mutually exclusive...)
+boolean INITIALSTATECHECK = true; //check's the connection state of the module, only used once
 boolean SETTINGHC05MODE = false;
-boolean CHECKSTATE = true;
 boolean DO_ADCN = false;
+boolean INITIALIZING = false;
+
 boolean LISTENNMEA = false;
 boolean COUNTINGRECENTDEVICES = false;
 boolean COUNTEDRECENTDEVICES = false;
@@ -104,11 +143,10 @@ boolean INQUIRINGDEVICES = false;
 boolean CONFRONTINGUSER = false;
 boolean SETTINGBINDADDRESS = false;
 boolean CONNECTINGTODEVICE = false;
-boolean INITIALIZING = false;
 
-int HC05_MODE;
-int HC05_STATE;
-int HC05_OLDSTATE;
+int HC05_MODE;                  //can be AT_MODE or COMMUNICATION_MODE
+int HC05_STATE;                 //can be CONNECTED or DISCONNECTED
+int HC05_OLDSTATE;              //can be CONNECTED or DISCONNECTED
 int deviceCount = 0;
 int recentDeviceCount = 0;
 int currentDeviceIdx = 0;
@@ -120,6 +158,7 @@ String outgoing;
 String devices[MAX_DEVICES];
 String currentDeviceAddr;
 String currentDeviceName;
+
 
 // the setup function runs once when you press reset or power the board
 void setup() {
@@ -137,9 +176,11 @@ void setup() {
   Serial.println("HC-05 serial is ready too!");
 
   //Start the HC-05 module in communication mode
-  HC05_MODE = COMMUNICATION_MODE;
-  SETTINGHC05MODE = true;
-  Set_HC05_MODE();
+  HC05_MODE = COMMUNICATION_MODE;  
+  //Set_HC05_MODE function uses HC05_MODE global instead of sending the mode in as a parameter,
+  //because this function is called in multiple steps by the timer object, as a callback,
+  //making it complicated to handle parameters...
+  Set_HC05_MODE(); 
         
   //time = millis();
 }
@@ -148,8 +189,8 @@ void setup() {
 void loop() {
   t.update();
   
-  if(SETTINGHC05MODE == false && CHECKSTATE == true){
-    CHECKSTATE = false;
+  if(SETTINGHC05MODE == false && INITIALSTATECHECK == true){
+    INITIALSTATECHECK = false;
     HC05_STATE = Check_HC05_STATE();
     if(HC05_STATE == CONNECTED){
       Serial.println("HC-05 is connected and is now listening for NMEA data...");
@@ -157,12 +198,11 @@ void loop() {
     }
     else if(HC05_STATE == DISCONNECTED){
       Serial.println("HC-05 is not connected, so let's see what we can do about that.");
-      HC05_MODE = AT_MODE;
-      SETTINGHC05MODE = true;
+      HC05_MODE = AT_MODE;      
       Set_HC05_MODE();
     }
   }
-  else if(SETTINGHC05MODE == false && CHECKSTATE == false && DO_ADCN){
+  else if(SETTINGHC05MODE == false && INITIALSTATECHECK == false && DO_ADCN){
     DO_ADCN = false;
     CountRecentAuthenticatedDevices();
   }
@@ -214,7 +254,7 @@ void loop() {
   // read serial data from HC-05 module and send to serial monitor:
   if(Serial1.available() > 0) {
     if(SETTINGHC05MODE && INITIALIZING==false){
-      Serial1.read(); //just throw it away, don't do anything about it
+      Serial1.read(); //just throw it away, don't do anything with it
     }
     else if(INITIALIZING){
       Serial.write(Serial1.read());
@@ -228,15 +268,6 @@ void loop() {
         incoming = char(inc) + Serial1.readStringUntil('\n');
         Serial.println(incoming);
   
-        //NOTE: don't discard data from following lines! sometimes we need it. Please handle the extra 'OK' line in single cases, when you expect it to be coming...
-        /*
-        //let's check if there's any more incoming data after the first line...
-        byte inc2 = Serial1.read();
-        if(inc2 != -1){
-          incoming2 = char(inc2) + Serial1.readStringUntil('\n'); //probably an 'OK' message...
-          Serial.println(incoming2);
-        }
-        */    
         if(COUNTINGRECENTDEVICES){
           COUNTINGRECENTDEVICES = false;
           if(incoming.startsWith("+ADCN")){
@@ -330,8 +361,16 @@ void loop() {
             InquireDevices();
           }
           else if(incoming.startsWith("ERROR")){
-            //already initiated, no problem, continue just the same
-            InquireDevices();  
+            int idx1 = incoming.indexOf('(');
+            int idx2 = incoming.indexOf(')');            
+            String errCode = incoming.substring(idx1+1,idx2);            
+            if(errCode == "17"){ //already initiated, no problem, continue just the same
+              InquireDevices();  
+            }
+            else{
+              Serial.println(incoming + ": " + getErrorMessage(errCode));
+            }
+            
           }
         }
         else if(INQUIRINGDEVICES){
@@ -413,15 +452,13 @@ void loop() {
           else if(incoming.startsWith("FAIL")){
             Serial.println("Failed to connect to "+currentDeviceName + ". Resetting device...");
             resetAllVariables();
-            HC05_MODE = AT_MODE;
-            SETTINGHC05MODE = true;
+            HC05_MODE = AT_MODE;            
             Set_HC05_MODE();
           }
           else{
             Serial.println("Error attempting connection to "+currentDeviceName + ". Resetting device...");
             resetAllVariables();
-            HC05_MODE = AT_MODE;
-            SETTINGHC05MODE = true;
+            HC05_MODE = AT_MODE;            
             Set_HC05_MODE();
           }
         }
@@ -438,6 +475,7 @@ void loop() {
 
 void Set_HC05_MODE(){
   if(currentFunctionStep==0){
+    SETTINGHC05MODE = true;
     Serial.print("Now setting HC-05 mode to ");
     if(HC05_MODE == COMMUNICATION_MODE){
       Serial.println("COMMUNICATION_MODE");  
@@ -529,7 +567,6 @@ void CountRecentAuthenticatedDevices(){
   Serial.println("Now counting recent connected devices...");
   Serial.println("->AT+ADCN");
   Serial1.println("AT+ADCN");  
-  //delay(200);
 }
 
 void CheckMostRecentAuthenticatedDevice(){
@@ -537,7 +574,6 @@ void CheckMostRecentAuthenticatedDevice(){
   Serial.println("Now checking the most recent authenticated device...");
   Serial.println("->AT+MRAD");
   Serial1.println("AT+MRAD");  
-  //delay(500);
 }
 
 void SearchAuthenticatedDevice(String addr){
@@ -545,7 +581,6 @@ void SearchAuthenticatedDevice(String addr){
   Serial.println("Now preparing to link to device whose address is: <" + addr + ">");
   Serial.println("->AT+INIT");
   Serial1.println("AT+INIT");  
-  //delay(500);  
 }
 
 void ConnectRecentAuthenticatedDevice(String addr){
@@ -553,7 +588,6 @@ void ConnectRecentAuthenticatedDevice(String addr){
   Serial.println("Now connecting to device whose address is: <" + addr + ">");
   Serial.println("->AT+LINK="+addr);
   Serial1.println("AT+LINK="+addr);  
-  //delay(500);  
 }
 
 int SetConnectionMode(int mode){
@@ -561,7 +595,6 @@ int SetConnectionMode(int mode){
   Serial.println("Setting connection mode...");
   Serial.println("->AT+CMODE="+String(mode));
   Serial1.println("AT+CMODE="+String(mode));  
-  //delay(500); 
   return mode;   
 }
 
@@ -570,7 +603,6 @@ void InitiateInquiry(){
   Serial.println("Initiating inquiry...");
   Serial.println("->AT+INIT");
   Serial1.println("AT+INIT");  
-  //delay(500);    
 }
 
 void InquireDevices(){
@@ -578,15 +610,13 @@ void InquireDevices(){
   Serial.println("Inquiring devices...");
   Serial.println("->AT+INQ");
   Serial1.println("AT+INQ");  
-  //delay(500);      
 }
 
 void ConfrontUserWithDevice(String devicexAddr){
   CONFRONTINGUSER = true;
-  Serial.println("Retrieving name of device number "+devicexAddr);
+  Serial.println("Retrieving name of device whose address is "+devicexAddr);
   Serial.println("->AT+RNAME "+devicexAddr);  
   Serial1.println("AT+RNAME "+devicexAddr);  
-  //delay(500);    
 }
 
 void SetBindAddress(){
@@ -613,7 +643,7 @@ void flushOkString(){
 
 void resetAllVariables(){
   SETTINGHC05MODE = false;
-  //CHECKSTATE = true; //not this one, this is only for first time check...
+  //INITIALSTATECHECK = true; //not this one, this is only for first time check...
   DO_ADCN = false;
   LISTENNMEA = false;
   COUNTINGRECENTDEVICES = false;
@@ -636,6 +666,14 @@ void resetAllVariables(){
   }
   currentDeviceAddr = "";
   currentDeviceName = "";
+}
+
+
+String getErrorMessage(String errCodeStr){
+  char errCodeHex[2];
+  errCodeStr.toCharArray(errCodeHex,2);
+  long errCode = strtol(errCodeHex,NULL,16);
+  return ERRORMESSAGE[errCode];
 }
 
 /*  
