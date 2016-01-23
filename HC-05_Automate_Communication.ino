@@ -1,21 +1,31 @@
 /*
- * HC-05 Automate Bonding with Bluetooth device
- * This assisted bonding is specifically geared towards bonding with a GPS Bluetooth device
- * Was written to assist automation of the process in the SmartClock-GPS Project
+ * Project:         HC-05 Automate Bonding with Bluetooth device
+ * Author:          John Romano D'Orazio
+ * Author Website:  http://www.johnromanodorazio.com
+ * Author Email:    john.dorazio@cappellaniauniroma3.org
+ * License:         MIT (See full license at the bottom of this file)
+ * Description:     This assisted bonding is specifically geared towards bonding with a GPS Bluetooth device
+ *                  Was written to assist automation of the process in the SmartClock-GPS Project
+ *                  (Could possibly be further developed to become an abstracted library for controlling HC-05 bluetooth modules...)
+ * Board:           Atmega 1284P on a breadboard using bootloader "maniacbug Mighty 1284P 16MHZ using Optiboot"
+ * Bootloader:      https://github.com/JChristensen/mighty-1284p/tree/v1.6.3 (for usage with Arduino 1.6.3 and higher)
+ * Last Modified:   23 January 2016
  * 
- * Could possibly be further developed to become an abstracted library for controlling HC-05 bluetooth modules...
+ * A project of the Microcontrollers Users Group at Roma Tre University
+ * MUG Roma3 http://muglab.uniroma3.it
  * 
+ * Preliminary Requirements:
  * HC-05 DEVICE MUST BE PREVIOUSLY SET AS MASTER, OTHERWISE INQUIRY WILL NOT WORK! (AT+ROLE=1)
  * IS BEST TO MANUALLY SET INQUIRY SCAN PARAMETERS (AT+IPSCAN) TO A GOOD DEFAULT (1024,512,1024,512)
  * ALSO INQUIRY MODE TO A GOOD DEFAULT (AT+INQM=1,15,12) RSSI MODE,MAX 5 DEVICES,TIMEOUT (MULTIPLY TIMEOUT BY 1.28 TO GET ACTUAL NUMBER OF SECONDS: 12*1.28=15.36)
  * PREPARE PSWD SAME AS DEVICE TO CONNECT TO (in case of GPS Bluetooth device is "0000", so AT+PSWD=0000)
+ * -> LATEST VERSION OF THIS SCRIPT AUTOMATES THE ABOVE REQUIRED SETTINGS EVERY TIME THE HC-05 MODULE IS SET TO AT-MODE, TO AVOID THEM BEING ACCIDENTALLY LEFT OUT
  * 
- * LATEST VERSION OF THIS SCRIPT AUTOMATES THE ABOVE REQUIRED SETTINGS EVERY TIME THE HC-05 MODULE IS SET TO AT-MODE, TO AVOID THEM BEING ACCIDENTALLY LEFT OUT
- * 
- * SOME GOOD INFORMATION:
+ * Useful literature:
  * -> http://wiki.iteadstudio.com/Serial_Port_Bluetooth_Module_(Master/Slave)_:_HC-05
  * -> http://www.hobbytronics.co.uk/datasheets/EGBT-bluetooth-module.pdf (different module but same kind of functionality)
- * LOGICAL STEPS:
+ * 
+ * LOGICAL STEPS IMPLEMENTED BY THE PROGRAM:
  *  1) START DEVICE IN COMMUNICATION MODE
  *  2) CHECK DEVICE STATE (CONNECTED / DISCONNECTED) USING STATE PIN
  *      a-> IF CONNECTED, THEN LISTEN FOR GPS NMEA DATA OVER SERIAL
@@ -39,9 +49,6 @@
  * 
  * For this script, the Arduino Serial Monitor must be set to 38400 baud and send only "LF" (or "NL" newline \n)
  *      
- *      Last modified January 2016
- *      Author John Romano D'Orazio http://www.johnromanodorazio.com
- *      Email priest@johnromanodorazio.com
  *      
  *      TODO: consider using PROGRAMSTATE definitions instead of booleans as PROGRAM STATE FLAGS...
  *            then usage would be like "IF(PROGRAMSTATE == SCANNINGDEVICES){}"
@@ -630,3 +637,25 @@ void resetAllVariables(){
   currentDeviceAddr = "";
   currentDeviceName = "";
 }
+
+/*
+ * Copyright (c) 2016 John Romano D'Orazio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHOR(S) OR COPYRIGHT HOLDER(S) BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
