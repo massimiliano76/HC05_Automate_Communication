@@ -56,34 +56,16 @@
  */
 
 #include "Timer.h"                     //http://github.com/JChristensen/Timer
+#include "HC05.h"
 
-/* DEFINE OUR CONSTANTS */
-
-#define LED             0 // led digital pin
-
-#define HC05_STATE_PIN  12 //hc-05 state digital pin
-#define HC05_KEY_PIN    13 //hc-05 key digital pin
-#define HC05_EN_PIN     14 //hc-05 enable digital pin
-
-#define AT_MODE               HIGH
-#define COMMUNICATION_MODE    LOW
-
-//module ROLE definitions
-#define SLAVE         0
-#define MASTER        1
-#define SLAVE_LOOP    2
-
-//module STATE definitions
-#define DISCONNECTED  0
-#define CONNECTED     1
+/* DEFINE OUR I/O PINS */
+#define LED_PIN         0   // led digital pin
+#define HC05_STATE_PIN  12  //hc-05 state digital pin
+#define HC05_KEY_PIN    13  //hc-05 key digital pin
+#define HC05_EN_PIN     14  //hc-05 enable digital pin
 
 //module max inquire devices
 #define MAX_DEVICES   15
-
-//module CMODE options
-#define CONNECT_BOUND       0
-#define CONNECT_ANY         1
-#define CONNECT_SLAVE_LOOP  2
 
 static const String ERRORMESSAGE[29] = {
   "Command Error/Invalid Command",
@@ -117,23 +99,6 @@ static const String ERRORMESSAGE[29] = {
   "Invalid Encryption Mode entered"
 };
 
-//possible states for the current program
-enum ProgramState { //typedef not necessary in C++, only in C
-  INITIALSTATECHECK,
-  DO_ADCN,
-  COUNTINGRECENTDEVICES,
-  COUNTEDRECENTDEVICES,
-  SEARCHAUTHENTICATEDDEVICE,
-  CONNECTINGRECENTDEVICE,
-  SETTINGCONNECTIONMODE,
-  INITIATINGINQUIRY,
-  INQUIRINGDEVICES,
-  CONFRONTINGUSER,
-  SETTINGBINDADDRESS,
-  CONNECTINGTODEVICE,
-  LISTENNMEA
-};
-
 
 /* INITIALIZE OUR GLOBAL VARIABLES */
 
@@ -141,25 +106,22 @@ ProgramState OLDPROGRAMSTATE;
 ProgramState CURRENTPROGRAMSTATE;
 boolean PROGRAMSTATECHANGED;
 
+boolean SETTINGHC05MODE = false;
+boolean INITIALIZING = false;
+
 //instantiate the timer object
 Timer t;
 int dynamicEvent;
 
-//these booleans represent program state
-//perhaps they could be made into constants, with a single variable representing program state...
-//I won't do this just yet, because as things stand combinations of these states are sometimes utilized...
-//(specifically the first three; all others seem to be mutually exclusive...)
-boolean SETTINGHC05MODE = false;
-//boolean DO_ADCN = false;
-boolean INITIALIZING = false;
 
-int HC05_MODE;                  //can be AT_MODE or COMMUNICATION_MODE
-int HC05_STATE;                 //can be CONNECTED or DISCONNECTED
-int HC05_OLDSTATE;              //can be CONNECTED or DISCONNECTED
+HC05MODE HC05_MODE;             //can be AT_MODE or COMMUNICATION_MODE
+HC05CMODE currentCMODE;         //can be CONNECT_BOUND, CONNECT_ANY, or CONNECT_SLAVE_LOOP
+HC05STATE HC05_STATE;                 //can be CONNECTED or DISCONNECTED
+HC05STATE HC05_OLDSTATE;              //can be CONNECTED or DISCONNECTED
+
 int deviceCount = 0;
 int recentDeviceCount = 0;
 int currentDeviceIdx = 0;
-int currentCMODE;
 int currentFunctionStep = 0;
 
 String incoming;
@@ -171,7 +133,7 @@ String currentDeviceName;
 
 // the setup function runs once when you press reset or power the board
 void setup() {
-  pinMode(LED, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   pinMode(HC05_STATE_PIN, INPUT);
   pinMode(HC05_KEY_PIN, OUTPUT);
   pinMode(HC05_EN_PIN, OUTPUT);
@@ -624,9 +586,10 @@ void Set_HC05_MODE(){
   }
 }
 
-int Check_HC05_STATE(){
+HC05STATE Check_HC05_STATE(){
   Serial.println("Checking HC_05 connected state...");
-  int state = digitalRead(HC05_STATE_PIN);
+  int stateReading = digitalRead(HC05_STATE_PIN);
+  HC05STATE state = static_cast<HC05STATE>(stateReading);
   if(state != HC05_OLDSTATE){
     HC05_OLDSTATE = state;
     if(state == CONNECTED){
@@ -635,7 +598,7 @@ int Check_HC05_STATE(){
     else if(state == DISCONNECTED){
       Serial.println("HC-05 is disconnected from all bluetooth devices.");
     }
-    digitalWrite(LED, state);
+    digitalWrite(LED_PIN, state);
   }
   return state;  
 }
@@ -668,12 +631,12 @@ void ConnectRecentAuthenticatedDevice(String addr){
   Serial1.println("AT+LINK="+addr);  
 }
 
-int SetConnectionMode(int mode){
+HC05CMODE SetConnectionMode(HC05CMODE mode){
   CURRENTPROGRAMSTATE = SETTINGCONNECTIONMODE;
   Serial.println("Setting connection mode...");
   Serial.println("->AT+CMODE="+String(mode));
   Serial1.println("AT+CMODE="+String(mode));  
-  return mode;   
+  return mode;
 }
 
 void InitiateInquiry(){
@@ -721,19 +684,6 @@ void flushOkString(){
 
 void resetAllVariables(){
   SETTINGHC05MODE = false;
-  //INITIALSTATECHECK = true; //not this one, this is only for first time check...
-  //DO_ADCN = false;
-  //LISTENNMEA = false;
-  //COUNTINGRECENTDEVICES = false;
-  //COUNTEDRECENTDEVICES = false;
-  //SEARCHAUTHENTICATEDDEVICE = false;
-  //CONNECTINGRECENTDEVICE = false;
-  //SETTINGCONNECTIONMODE = false;
-  //INITIATINGINQUIRY = false;
-  //INQUIRINGDEVICES = false;
-  //CONFRONTINGUSER = false;
-  //SETTINGBINDADDRESS = false;
-  //CONNECTINGTODEVICE = false;
   INITIALIZING = false;
   deviceCount = 0;
   recentDeviceCount = 0;
