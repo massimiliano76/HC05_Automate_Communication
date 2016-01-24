@@ -51,7 +51,7 @@
  *      
  *      
  *      TODO: consider using PROGRAMSTATE definitions instead of booleans as PROGRAM STATE FLAGS...
- *            then usage would be like "IF(PROGRAMSTATE == SCANNINGDEVICES){}"
+ *            then usage would be like "IF(CURRENTPROGRAMSTATE == SCANNINGDEVICES){}"
  *            and we could use a SWITCH CASE instead of IF...ELSE IF
  */
 
@@ -85,7 +85,7 @@
 #define CONNECT_ANY         1
 #define CONNECT_SLAVE_LOOP  2
 
-const String ERRORMESSAGE[29] = {
+static const String ERRORMESSAGE[29] = {
   "Command Error/Invalid Command",
   "Results in default value",
   "PSKEY write error",
@@ -118,7 +118,7 @@ const String ERRORMESSAGE[29] = {
 };
 
 //possible states for the current program
-enum{
+typedef enum PROGRAMSTATE {
   INITIALSTATECHECK,
   DO_ADCN,
   COUNTINGRECENTDEVICES,
@@ -132,9 +132,10 @@ enum{
   SETTINGBINDADDRESS,
   CONNECTINGTODEVICE,
   LISTENNMEA
-}PROGRAMSTATE;
+};
 
-int OLDPROGRAMSTATE;
+PROGRAMSTATE OLDPROGRAMSTATE;
+PROGRAMSTATE CURRENTPROGRAMSTATE;
 boolean PROGRAMSTATECHANGED;
 
 /* INITIALIZE OUR GLOBAL VARIABLES */
@@ -182,7 +183,7 @@ void setup() {
   while(!Serial1){} //wait until Serial1 is ready
   Serial.println("HC-05 serial is ready too!");
 
-  PROGRAMSTATE = INITIALSTATECHECK;
+  CURRENTPROGRAMSTATE = INITIALSTATECHECK;
   
   //Start the HC-05 module in communication mode
   HC05_MODE = COMMUNICATION_MODE;  
@@ -197,19 +198,19 @@ void setup() {
 // the loop function runs over and over again forever
 void loop() {
   t.update();
-  if(PROGRAMSTATE != OLDPROGRAMSTATE){
+  if(CURRENTPROGRAMSTATE != OLDPROGRAMSTATE){
     PROGRAMSTATECHANGED = true;
-    OLDPROGRAMSTATE = PROGRAMSTATE;
+    OLDPROGRAMSTATE = CURRENTPROGRAMSTATE;
   }
   else{
     PROGRAMSTATECHANGED = false;
   }
   
-  if(SETTINGHC05MODE == false && PROGRAMSTATE == INITIALSTATECHECK){
+  if(SETTINGHC05MODE == false && CURRENTPROGRAMSTATE == INITIALSTATECHECK){
     HC05_STATE = Check_HC05_STATE();
     if(HC05_STATE == CONNECTED){
       Serial.println("HC-05 is connected and is now listening for NMEA data...");
-      PROGRAMSTATE = LISTENNMEA;
+      CURRENTPROGRAMSTATE = LISTENNMEA;
     }
     else if(HC05_STATE == DISCONNECTED){
       Serial.println("HC-05 is not connected, so let's see what we can do about that.");
@@ -217,11 +218,11 @@ void loop() {
       Set_HC05_MODE();
     }
   }
-  else if(SETTINGHC05MODE == false && PROGRAMSTATE == DO_ADCN){
+  else if(SETTINGHC05MODE == false && CURRENTPROGRAMSTATE == DO_ADCN){
     CountRecentAuthenticatedDevices();
   }
   
-  if(PROGRAMSTATE == LISTENNMEA){
+  if(CURRENTPROGRAMSTATE == LISTENNMEA){
     //serial listen for nmea data and all that stuff
   }
 
@@ -230,7 +231,7 @@ void loop() {
   if (Serial.available() > 0) {
     outgoing = Serial.readStringUntil('\n');
     Serial.println(outgoing);
-    if(PROGRAMSTATE == CONFRONTINGUSER){
+    if(CURRENTPROGRAMSTATE == CONFRONTINGUSER){
       if(outgoing.startsWith("Y")){
         currentCMODE = SetConnectionMode(CONNECT_BOUND);
       }
@@ -282,7 +283,7 @@ void loop() {
 
         if(PROGRAMSTATECHANGED){
           
-          switch(PROGRAMSTATE){
+          switch(CURRENTPROGRAMSTATE){
             
             case COUNTINGRECENTDEVICES:
               if(incoming.startsWith("+ADCN")){
@@ -461,7 +462,7 @@ void loop() {
               if(incoming.startsWith("OK")){
                 Serial.println("Successfully connected to "+currentDeviceName);
                 //WE HAVE MOST PROBABLY LEFT AT MODE AND ARE IN COMMUNICATION MODE NOW
-                PROGRAMSTATE = LISTENNMEA;
+                CURRENTPROGRAMSTATE = LISTENNMEA;
               }
               else if(incoming.startsWith("FAIL")){
                 Serial.println("Failed to connect to "+currentDeviceName + ". Resetting device...");
@@ -479,7 +480,7 @@ void loop() {
           }
         }
         else{
-          switch(PROGRAMSTATE){
+          switch(CURRENTPROGRAMSTATE){
             case INQUIRINGDEVICES:
               if(incoming.startsWith("OK")){
                 Serial.println("Finished inquiring devices.");
@@ -557,7 +558,7 @@ void Set_HC05_MODE(){
       Serial.println("COMMUNICATION_MODE");  
     }else if(HC05_MODE == AT_MODE){
       Serial.println("AT_MODE");
-      PROGRAMSTATE = DO_ADCN;
+      CURRENTPROGRAMSTATE = DO_ADCN;
     }
     digitalWrite(HC05_EN_PIN, LOW); //EN to LOW = disable (pull low to reset when changing modes!)
     currentFunctionStep++;
@@ -639,35 +640,35 @@ int Check_HC05_STATE(){
 }
 
 void CountRecentAuthenticatedDevices(){
-  PROGRAMSTATE = COUNTINGRECENTDEVICES;
+  CURRENTPROGRAMSTATE = COUNTINGRECENTDEVICES;
   Serial.println("Now counting recent connected devices...");
   Serial.println("->AT+ADCN");
   Serial1.println("AT+ADCN");  
 }
 
 void CheckMostRecentAuthenticatedDevice(){
-  PROGRAMSTATE = COUNTEDRECENTDEVICES;
+  CURRENTPROGRAMSTATE = COUNTEDRECENTDEVICES;
   Serial.println("Now checking the most recent authenticated device...");
   Serial.println("->AT+MRAD");
   Serial1.println("AT+MRAD");  
 }
 
 void SearchAuthenticatedDevice(String addr){
-  PROGRAMSTATE = SEARCHAUTHENTICATEDDEVICE;
+  CURRENTPROGRAMSTATE = SEARCHAUTHENTICATEDDEVICE;
   Serial.println("Now preparing to link to device whose address is: <" + addr + ">");
   Serial.println("->AT+INIT");
   Serial1.println("AT+INIT");  
 }
 
 void ConnectRecentAuthenticatedDevice(String addr){
-  PROGRAMSTATE = CONNECTINGRECENTDEVICE;
+  CURRENTPROGRAMSTATE = CONNECTINGRECENTDEVICE;
   Serial.println("Now connecting to device whose address is: <" + addr + ">");
   Serial.println("->AT+LINK="+addr);
   Serial1.println("AT+LINK="+addr);  
 }
 
 int SetConnectionMode(int mode){
-  PROGRAMSTATE = SETTINGCONNECTIONMODE;
+  CURRENTPROGRAMSTATE = SETTINGCONNECTIONMODE;
   Serial.println("Setting connection mode...");
   Serial.println("->AT+CMODE="+String(mode));
   Serial1.println("AT+CMODE="+String(mode));  
@@ -675,35 +676,35 @@ int SetConnectionMode(int mode){
 }
 
 void InitiateInquiry(){
-  PROGRAMSTATE = INITIATINGINQUIRY;
+  CURRENTPROGRAMSTATE = INITIATINGINQUIRY;
   Serial.println("Initiating inquiry...");
   Serial.println("->AT+INIT");
   Serial1.println("AT+INIT");  
 }
 
 void InquireDevices(){
-  PROGRAMSTATE = INQUIRINGDEVICES;
+  CURRENTPROGRAMSTATE = INQUIRINGDEVICES;
   Serial.println("Inquiring devices...");
   Serial.println("->AT+INQ");
   Serial1.println("AT+INQ");  
 }
 
 void ConfrontUserWithDevice(String devicexAddr){
-  PROGRAMSTATE = CONFRONTINGUSER;
+  CURRENTPROGRAMSTATE = CONFRONTINGUSER;
   Serial.println("Retrieving name of device whose address is "+devicexAddr);
   Serial.println("->AT+RNAME "+devicexAddr);  
   Serial1.println("AT+RNAME "+devicexAddr);  
 }
 
 void SetBindAddress(){
-  PROGRAMSTATE = SETTINGBINDADDRESS;
+  CURRENTPROGRAMSTATE = SETTINGBINDADDRESS;
   Serial.println("Setting bind address to '" + currentDeviceName + "'s address <" + currentDeviceAddr + ">");
   Serial.println("->AT+BIND="+currentDeviceAddr);
   Serial1.println("AT+BIND="+currentDeviceAddr);
 }
 
 void LinkToCurrentDevice(String devicexAddr){
-  PROGRAMSTATE = CONNECTINGTODEVICE;
+  CURRENTPROGRAMSTATE = CONNECTINGTODEVICE;
   Serial.println("Very well! Connecting to '" + currentDeviceName + "'");
   Serial.println("->AT+LINK="+devicexAddr);
   Serial1.println("AT+LINK="+devicexAddr);
