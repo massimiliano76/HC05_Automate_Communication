@@ -118,7 +118,7 @@ static const String ERRORMESSAGE[29] = {
 };
 
 //possible states for the current program
-typedef enum PROGRAMSTATE {
+enum ProgramState { //typedef not necessary in C++, only in C
   INITIALSTATECHECK,
   DO_ADCN,
   COUNTINGRECENTDEVICES,
@@ -134,11 +134,12 @@ typedef enum PROGRAMSTATE {
   LISTENNMEA
 };
 
-PROGRAMSTATE OLDPROGRAMSTATE;
-PROGRAMSTATE CURRENTPROGRAMSTATE;
-boolean PROGRAMSTATECHANGED;
 
 /* INITIALIZE OUR GLOBAL VARIABLES */
+
+ProgramState OLDPROGRAMSTATE;
+ProgramState CURRENTPROGRAMSTATE;
+boolean PROGRAMSTATECHANGED;
 
 //instantiate the timer object
 Timer t;
