@@ -49,10 +49,6 @@
  * 
  * For this script, the Arduino Serial Monitor must be set to 38400 baud and send only "LF" (or "NL" newline \n)
  *      
- *      
- *      TODO: consider using PROGRAMSTATE definitions instead of booleans as PROGRAM STATE FLAGS...
- *            then usage would be like "IF(CURRENTPROGRAMSTATE == SCANNINGDEVICES){}"
- *            and we could use a SWITCH CASE instead of IF...ELSE IF
  */
 
 #include "Timer.h"                     //http://github.com/JChristensen/Timer
@@ -116,19 +112,21 @@ int dynamicEvent;
 
 HC05MODE HC05_MODE;             //can be AT_MODE or COMMUNICATION_MODE
 HC05CMODE currentCMODE;         //can be CONNECT_BOUND, CONNECT_ANY, or CONNECT_SLAVE_LOOP
-HC05STATE HC05_STATE;                 //can be CONNECTED or DISCONNECTED
-HC05STATE HC05_OLDSTATE;              //can be CONNECTED or DISCONNECTED
+HC05STATE HC05_STATE;           //can be CONNECTED or DISCONNECTED
+HC05STATE HC05_OLDSTATE;        //can be CONNECTED or DISCONNECTED
+
+int recentDeviceCount = 0;
 
 int deviceCount = 0;
-int recentDeviceCount = 0;
+String devices[MAX_DEVICES];
 int currentDeviceIdx = 0;
+String currentDeviceAddr;
+String currentDeviceName;
+
 int currentFunctionStep = 0;
 
 String incoming;
 String outgoing;
-String devices[MAX_DEVICES];
-String currentDeviceAddr;
-String currentDeviceName;
 
 
 // the setup function runs once when you press reset or power the board
@@ -161,14 +159,16 @@ void setup() {
 // the loop function runs over and over again forever
 void loop() {
   t.update();
+/*
   if(CURRENTPROGRAMSTATE != OLDPROGRAMSTATE){
     PROGRAMSTATECHANGED = true;
     OLDPROGRAMSTATE = CURRENTPROGRAMSTATE;
+    Serial.println("[Program State Changed... Current State: " + String(CURRENTPROGRAMSTATE) + "]");
   }
   else{
     PROGRAMSTATECHANGED = false;
   }
-  
+*/  
   if(SETTINGHC05MODE == false && CURRENTPROGRAMSTATE == INITIALSTATECHECK){
     HC05_STATE = Check_HC05_STATE();
     if(HC05_STATE == CONNECTED){
@@ -185,11 +185,6 @@ void loop() {
     CountRecentAuthenticatedDevices();
   }
   
-  if(CURRENTPROGRAMSTATE == LISTENNMEA){
-    //serial listen for nmea data and all that stuff
-  }
-
-
  // read serial data from serial monitor and send to HC-05 module:
   if (Serial.available() > 0) {
     outgoing = Serial.readStringUntil('\n');
@@ -228,6 +223,7 @@ void loop() {
   
   // read serial data from HC-05 module and send to serial monitor:
   if(Serial1.available() > 0) {
+    //Serial.println("[incoming serial data detected]");
     if(SETTINGHC05MODE && INITIALIZING==false){
       Serial1.read(); //just throw it away, don't do anything with it
     }
@@ -240,269 +236,214 @@ void loop() {
   
       byte inc = Serial1.read(); //check the incoming character    
       if(inc != 0 && inc < 127){ //if the incoming character is not junk then continue reading the string
-        
+        //Serial.println("[incoming serial data is not junk, now reading line...]");
         incoming = char(inc) + Serial1.readStringUntil('\n');
         Serial.println(incoming);
 
-        if(PROGRAMSTATECHANGED){
-          
-          switch(CURRENTPROGRAMSTATE){
-            
-            case COUNTINGRECENTDEVICES:
-              if(incoming.startsWith("+ADCN")){
-                Serial.println("Response from recent device count is positive!");
-                String deviceCountStr = incoming.substring(incoming.indexOf(':')+1); //should ':' be ' '?
-                recentDeviceCount = deviceCountStr.toInt();
-                
-                flushOkString();
-                
-                if(recentDeviceCount>0){
-                  String dev = (recentDeviceCount==1?" device":" devices");
-                  String mex = "HC-05 has been recently paired with " + deviceCountStr + dev;
-                  Serial.println(mex);
-                  CheckMostRecentAuthenticatedDevice();
-                }else{
-                  Serial.println("There do not seem to be any recent devices.");
-                  //We will have to initiate inquiry of nearby devices. First, we have to make sure we that the HC-05 is set to connect to any device.
-                  currentCMODE = SetConnectionMode(CONNECT_ANY);
-                }
-              }
-              else{
-                Serial.println("COUNTINGRECENTDEVICES ???");
-              }
-
-              break;
-              
-            case COUNTEDRECENTDEVICES:
-              if(incoming.startsWith("+MRAD")){
-                Serial.println("I believe I have detected the Address of the most recent device...");
-                
-                flushOkString();
-      
-                int idx = incoming.indexOf(':'); // should this be a space perhaps...
-                //int idx1 = incoming.indexOf(',');
-                if(idx != -1){ // && idx1 != -1
-                  String addr = incoming.substring(idx+1); //,idx
-                  addr.replace(':',',');
-                  addr.trim();
-                  currentDeviceAddr = addr;
-                  SearchAuthenticatedDevice(currentDeviceAddr); 
-                }
-                else{
-                  Serial.println("The response string surprised me, I don't know what to say.");
-                }
-              }
-              else{
-                Serial.println("The response string does not seem to be an address for the most recent device...");
-              }
-              break;
-
-            case SEARCHAUTHENTICATEDDEVICE:
-              if(incoming.startsWith("OK")){
-                  Serial.println("Now ready to connect to device with address <" + currentDeviceAddr + ">.");
-                  ConnectRecentAuthenticatedDevice(currentDeviceAddr);
-              }
-              else if(incoming.startsWith("FAIL")){
-                Serial.println("Unable to prepare for connection with device whose address is <" + currentDeviceAddr + ">.");
-              }
-              else{
-                Serial.println("SEARCHAUTHENTICATEDDEVICE ???");
-              }
-              break;
-              
-            case CONNECTINGRECENTDEVICE:
-              if(incoming.startsWith("OK")){
-                Serial.println("HC-05 is now connected to most recent authenticated device");
-              }
-              else if(incoming.startsWith("FAIL")){
-                Serial.println("Connection to most recent authenticated device has failed.");
-                InquireDevices();
-              }
-              else{
-                Serial.println("CONNECTINGRECENTDEVICE ???");
-              }
-              break;
-
-            case SETTINGCONNECTIONMODE:
-              if(incoming.startsWith("OK")){
-                if(currentCMODE == CONNECT_ANY){
-                  Serial.println("CMODE successfully set to connect to any device.");
-                  InitiateInquiry();
-                }
-                else if(currentCMODE == CONNECT_BOUND){
-                  Serial.println("CMODE successfully set to connect only to bound device.");
-                  SetBindAddress();
-                }
-              }
-              break;
-
-            case INITIATINGINQUIRY:
-              if(incoming.startsWith("OK")){
-                InquireDevices();
-              }
-              else if(incoming.startsWith("ERROR")){
-                int idx1 = incoming.indexOf('(');
-                int idx2 = incoming.indexOf(')');            
-                String errCode = incoming.substring(idx1+1,idx2);            
-                if(errCode == "17"){ //already initiated, no problem, continue just the same
-                  InquireDevices();  
-                }
-                else{
-                  Serial.println(incoming + ": " + getErrorMessage(errCode));
-                }                
-              }
-              break;
-              
-            case INQUIRINGDEVICES:
-              if(incoming.startsWith("OK")){
-                Serial.println("Finished inquiring devices.");
-                currentDeviceIdx=0;
-                if(deviceCount > 0){
-                  currentDeviceAddr = devices[currentDeviceIdx];
-                  ConfrontUserWithDevice(currentDeviceAddr);  
-                }        
-                else{
-                  Serial.print("Sorry, I have not found any useful devices. Trying again.");
-                  InitiateInquiry();
-                }
-              }
-              else if(incoming.startsWith("+INQ")){
-                int idx = incoming.indexOf(':');
-                int idx2 = incoming.indexOf(',');
-                String addr = incoming.substring(idx+1,idx2);
-                addr.replace(':',',');
-                addr.trim();
-                devices[deviceCount] = addr;
-                deviceCount++;
-              }
-              break;
-
-            case CONFRONTINGUSER:
-              if(incoming.startsWith("+RNAME")){                    
-                currentDeviceName = incoming.substring(incoming.indexOf(':')+1);
-                
-                flushOkString();
-                
-                Serial.println("Would you like to connect to '" + currentDeviceName + "'? Please type Y or N.");
-              }
-              else if(incoming.startsWith("FAIL")){
-                Serial.println("Could not retrieve name of detected device... continuing to next");
-                currentDeviceIdx++;
-                if(currentDeviceIdx < deviceCount){
-                  currentDeviceAddr = devices[currentDeviceIdx];
-                  ConfrontUserWithDevice(currentDeviceAddr);
-                }
-                else{
-                  Serial.println("Devices are exhausted. Searching again.");
-                  InitiateInquiry();
-                }
-              }
-              else{
-                Serial.println("There was an error retrieving the device name... continuing to next");
-                currentDeviceIdx++;
-                if(currentDeviceIdx < deviceCount){
-                  currentDeviceAddr = devices[currentDeviceIdx];
-                  ConfrontUserWithDevice(currentDeviceAddr);
-                }
-                else{
-                  Serial.println("Devices are exhausted. Searching again.");
-                  InitiateInquiry();
-                }
-              }
-              break;
-
-            case SETTINGBINDADDRESS:
-              if(incoming.startsWith("OK")){
-                Serial.println("Bound HC-05 to bluetooth device.");
-                LinkToCurrentDevice(currentDeviceAddr);          
-              }
-              else{
-                Serial.println("SETTINGBINDADDRESS what could possible have gone wrong?");
-              }
-              break;
-
-            case CONNECTINGTODEVICE:
-              if(incoming.startsWith("OK")){
-                Serial.println("Successfully connected to "+currentDeviceName);
-                //WE HAVE MOST PROBABLY LEFT AT MODE AND ARE IN COMMUNICATION MODE NOW
-                CURRENTPROGRAMSTATE = LISTENNMEA;
-              }
-              else if(incoming.startsWith("FAIL")){
-                Serial.println("Failed to connect to "+currentDeviceName + ". Resetting device...");
-                resetAllVariables();
-                HC05_MODE = AT_MODE;            
-                Set_HC05_MODE();
-              }
-              else{
-                Serial.println("Error attempting connection to "+currentDeviceName + ". Resetting device...");
-                resetAllVariables();
-                HC05_MODE = AT_MODE;            
-                Set_HC05_MODE();
-              }
-              break;
-          }
-        }
-        else{
-          switch(CURRENTPROGRAMSTATE){
-            case INQUIRINGDEVICES:
-              if(incoming.startsWith("OK")){
-                Serial.println("Finished inquiring devices.");
-                currentDeviceIdx=0;
-                if(deviceCount > 0){
-                  currentDeviceAddr = devices[currentDeviceIdx];
-                  ConfrontUserWithDevice(currentDeviceAddr);  
-                }        
-                else{
-                  Serial.print("Sorry, I have not found any useful devices. Trying again.");
-                  InitiateInquiry();
-                }
-              }
-              else if(incoming.startsWith("+INQ")){
-                int idx = incoming.indexOf(':');
-                int idx2 = incoming.indexOf(',');
-                String addr = incoming.substring(idx+1,idx2);
-                addr.replace(':',',');
-                addr.trim();
-                devices[deviceCount] = addr;
-                deviceCount++;
-              }           
-              break;
-            case CONFRONTINGUSER:
-              if(incoming.startsWith("+RNAME")){                    
-                currentDeviceName = incoming.substring(incoming.indexOf(':')+1);
-                
-                flushOkString();
-                
-                Serial.println("Would you like to connect to '" + currentDeviceName + "'? Please type Y or N.");
-              }
-              else if(incoming.startsWith("FAIL")){
-                Serial.println("Could not retrieve name of detected device... continuing to next");
-                currentDeviceIdx++;
-                if(currentDeviceIdx < deviceCount){
-                  currentDeviceAddr = devices[currentDeviceIdx];
-                  ConfrontUserWithDevice(currentDeviceAddr);
-                }
-                else{
-                  Serial.println("Devices are exhausted. Searching again.");
-                  InitiateInquiry();
-                }
-              }
-              else{
-                Serial.println("There was an error retrieving the device name... continuing to next");
-                currentDeviceIdx++;
-                if(currentDeviceIdx < deviceCount){
-                  currentDeviceAddr = devices[currentDeviceIdx];
-                  ConfrontUserWithDevice(currentDeviceAddr);
-                }
-                else{
-                  Serial.println("Devices are exhausted. Searching again.");
-                  InitiateInquiry();
-                }
-              }
-              break;  
-          }
+        if(incoming.startsWith("ERROR")){
+          int idx1 = incoming.indexOf('(');
+          int idx2 = incoming.indexOf(')');            
+          String errCode = incoming.substring(idx1+1,idx2);            
+          Serial.println(incoming + ": " + getErrorMessage(errCode));
         }
         
+        switch(CURRENTPROGRAMSTATE){
+          
+          case COUNTINGRECENTDEVICES:
+            if(incoming.startsWith("+ADCN")){
+              Serial.println("Response from recent device count is positive!");
+              String deviceCountStr = incoming.substring(incoming.indexOf(':')+1);
+              recentDeviceCount = deviceCountStr.toInt();
+              
+              flushOkString();
+              
+              if(recentDeviceCount>0){
+                String dev = (recentDeviceCount==1?" device":" devices");
+                String mex = "HC-05 has been recently paired with " + deviceCountStr + dev;
+                Serial.println(mex);
+                CheckMostRecentAuthenticatedDevice();
+              }else{
+                Serial.println("There do not seem to be any recent devices.");
+                //We will have to initiate inquiry of nearby devices. First, we have to make sure we that the HC-05 is set to connect to any device.
+                currentCMODE = SetConnectionMode(CONNECT_ANY);
+              }
+            }
+            else{
+              Serial.println("COUNTINGRECENTDEVICES ???");
+            }
+
+            break;
+            
+          case COUNTEDRECENTDEVICES:
+            if(incoming.startsWith("+MRAD")){
+              Serial.println("I believe I have detected the Address of the most recent device...");
+              
+              flushOkString();
+    
+              int idx = incoming.indexOf(':'); // should this be a space perhaps...
+              //int idx1 = incoming.indexOf(',');
+              if(idx != -1){ // && idx1 != -1
+                String addr = incoming.substring(idx+1); //,idx
+                addr.replace(':',',');
+                addr.trim();
+                currentDeviceAddr = addr;
+                SearchAuthenticatedDevice(currentDeviceAddr); 
+              }
+              else{
+                Serial.println("The response string surprised me, I don't know what to say.");
+              }
+            }
+            else{
+              Serial.println("The response string does not seem to be an address for the most recent device...");
+            }
+            break;
+
+          case SEARCHAUTHENTICATEDDEVICE:
+            if(incoming.startsWith("OK")){
+                Serial.println("Now ready to connect to device with address <" + currentDeviceAddr + ">.");
+                ConnectRecentAuthenticatedDevice(currentDeviceAddr);
+            }
+            else if(incoming.startsWith("FAIL")){
+              Serial.println("Unable to prepare for connection with device whose address is <" + currentDeviceAddr + ">.");
+            }
+            else{
+              Serial.println("SEARCHAUTHENTICATEDDEVICE ???");
+            }
+            break;
+            
+          case CONNECTINGRECENTDEVICE:
+            if(incoming.startsWith("OK")){
+              Serial.println("HC-05 is now connected to most recent authenticated device");
+            }
+            else if(incoming.startsWith("FAIL")){
+              Serial.println("Connection to most recent authenticated device has failed.");
+              InquireDevices();
+            }
+            else{
+              Serial.println("CONNECTINGRECENTDEVICE ???");
+            }
+            break;
+
+          case SETTINGCONNECTIONMODE:
+            if(incoming.startsWith("OK")){
+              if(currentCMODE == CONNECT_ANY){
+                Serial.println("CMODE successfully set to connect to any device.");
+                InitiateInquiry();
+              }
+              else if(currentCMODE == CONNECT_BOUND){
+                Serial.println("CMODE successfully set to connect only to bound device.");
+                SetBindAddress();
+              }
+            }
+            break;
+
+          case INITIATINGINQUIRY:
+            if(incoming.startsWith("OK")){
+              InquireDevices();
+            }
+            else if(incoming.startsWith("ERROR")){
+              int idx1 = incoming.indexOf('(');
+              int idx2 = incoming.indexOf(')');            
+              String errCode = incoming.substring(idx1+1,idx2);            
+              if(errCode == "17"){ //already initiated, no problem, continue just the same
+                InquireDevices();  
+              }
+              else{
+                Serial.println(incoming + ": " + getErrorMessage(errCode));
+              }                
+            }
+            break;
+            
+          case INQUIRINGDEVICES:
+            if(incoming.startsWith("OK")){
+              Serial.println("Finished inquiring devices.");
+              currentDeviceIdx=0;
+              if(deviceCount > 0){
+                currentDeviceAddr = devices[currentDeviceIdx];
+                ConfrontUserWithDevice(currentDeviceAddr);  
+              }        
+              else{
+                Serial.print("Sorry, I have not found any useful devices. Trying again.");
+                InitiateInquiry();
+              }
+            }
+            else if(incoming.startsWith("+INQ")){
+              int idx = incoming.indexOf(':');
+              int idx2 = incoming.indexOf(',');
+              String addr = incoming.substring(idx+1,idx2);
+              addr.replace(':',',');
+              addr.trim();
+              if(inArray(addr,devices,MAX_DEVICES) == -1){ 
+                devices[deviceCount] = addr;
+                deviceCount++;
+              }
+            }                           
+            break;
+
+          case CONFRONTINGUSER:
+            if(incoming.startsWith("+RNAME")){                    
+              currentDeviceName = incoming.substring(incoming.indexOf(':')+1);
+              
+              flushOkString();
+              
+              Serial.println("Would you like to connect to '" + currentDeviceName + "'? Please type Y or N.");
+            }
+            else if(incoming.startsWith("FAIL")){
+              Serial.println("Could not retrieve name of detected device... continuing to next");
+              currentDeviceIdx++;
+              if(currentDeviceIdx < deviceCount){
+                currentDeviceAddr = devices[currentDeviceIdx];
+                ConfrontUserWithDevice(currentDeviceAddr);
+              }
+              else{
+                Serial.println("Devices are exhausted. Searching again.");
+                InitiateInquiry();
+              }
+            }
+            else{
+              Serial.println("There was an error retrieving the device name... continuing to next");
+              currentDeviceIdx++;
+              if(currentDeviceIdx < deviceCount){
+                currentDeviceAddr = devices[currentDeviceIdx];
+                ConfrontUserWithDevice(currentDeviceAddr);
+              }
+              else{
+                Serial.println("Devices are exhausted. Searching again.");
+                InitiateInquiry();
+              }
+            }
+            break;
+
+          case SETTINGBINDADDRESS:
+            if(incoming.startsWith("OK")){
+              Serial.println("Bound HC-05 to bluetooth device.");
+              LinkToCurrentDevice(currentDeviceAddr);          
+            }
+            else{
+              Serial.println("SETTINGBINDADDRESS what could possible have gone wrong?");
+            }
+            break;
+
+          case CONNECTINGTODEVICE:
+            if(incoming.startsWith("OK")){
+              Serial.println("Successfully connected to "+currentDeviceName);
+              //WE HAVE MOST PROBABLY LEFT AT MODE AND ARE IN COMMUNICATION MODE NOW
+              CURRENTPROGRAMSTATE = LISTENNMEA;
+            }
+            else if(incoming.startsWith("FAIL")){
+              Serial.println("Failed to connect to "+currentDeviceName + ". Resetting device...");
+              resetAllVariables();
+              HC05_MODE = AT_MODE;            
+              Set_HC05_MODE();
+            }
+            else{
+              Serial.println("Error attempting connection to "+currentDeviceName + ". Resetting device...");
+              resetAllVariables();
+              HC05_MODE = AT_MODE;            
+              Set_HC05_MODE();
+            }
+            break;
+        }        
       }
     }
     //incoming = Serial1.readStringUntil('\n');
@@ -514,7 +455,8 @@ void loop() {
 }
 
 void Set_HC05_MODE(){
-  if(currentFunctionStep==0){
+  Serial.println("[currentFunctionStep = " + String(currentFunctionStep) + "]");
+  if(currentFunctionStep==0 && SETTINGHC05MODE == false){
     SETTINGHC05MODE = true;
     Serial.print("Now setting HC-05 mode to ");
     if(HC05_MODE == COMMUNICATION_MODE){
@@ -536,7 +478,7 @@ void Set_HC05_MODE(){
     digitalWrite(HC05_EN_PIN, HIGH); //EN to HIGH = enable
     currentFunctionStep++;
     if(HC05_MODE == AT_MODE){
-      dynamicEvent = t.after(5000,Set_HC05_MODE);
+      dynamicEvent = t.after(2000,Set_HC05_MODE);
     }
     else if(HC05_MODE == COMMUNICATION_MODE){
       dynamicEvent = t.after(5000,Set_HC05_MODE);
@@ -641,6 +583,7 @@ HC05CMODE SetConnectionMode(HC05CMODE mode){
 
 void InitiateInquiry(){
   CURRENTPROGRAMSTATE = INITIATINGINQUIRY;
+  resetAllVariables();
   Serial.println("Initiating inquiry...");
   Serial.println("->AT+INIT");
   Serial1.println("AT+INIT");  
@@ -698,10 +641,21 @@ void resetAllVariables(){
 
 
 String getErrorMessage(String errCodeStr){
-  char errCodeHex[2];
-  errCodeStr.toCharArray(errCodeHex,2);
-  long errCode = strtol(errCodeHex,NULL,16);
+  char errCodeHex[3];
+  Serial.println("errCodeStr = " + errCodeStr);
+  long errCode = strtol(errCodeStr.c_str(),NULL,16);
   return ERRORMESSAGE[errCode];
+}
+
+int inArray(String needle,String* haystack, int len){  
+  int index = -1;
+  for (int i=0; i<len; i++) {
+     if (needle == haystack[i]) {
+       index = i;
+       break;
+     }
+  }
+  return index;
 }
 
 /*  
